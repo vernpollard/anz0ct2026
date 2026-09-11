@@ -147,12 +147,21 @@
     background:var(--card);
     position:relative;
     cursor:default;
+    display:flex;
+    flex-direction:column;
+  }
+  .cal-cell .day-meetings{margin-top:3px;display:flex;flex-direction:column;gap:1px;min-width:0;}
+  .cal-cell .day-meetings div{
+    font-size:8.5px;
+    line-height:1.25;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+    max-width:100%;
   }
   .cal-cell.has-city{border-color:transparent;}
   .cal-cell .num{font-size:12px;font-family:var(--mono);color:var(--ink-soft);}
   .cal-cell .city-label{font-size:10px;font-weight:600;margin-top:4px;}
-  .cal-cell .dots{position:absolute;bottom:5px;left:6px;display:flex;gap:3px;}
-  .cal-cell .dots i{width:6px;height:6px;border-radius:50%;display:inline-block;}
   .cal-cell.clickable{cursor:pointer;}
   .cal-cell.clickable:hover{outline:1.5px solid var(--ink);}
   .cal-cell.dim .num{color:#C9C2B4;}
@@ -189,11 +198,10 @@
   /* Form */
   form{
     display:grid;
-    grid-template-columns:1.4fr 1fr 1fr 0.8fr 1.6fr auto;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
     gap:10px;
     align-items:end;
   }
-  @media (max-width:760px){ form{grid-template-columns:1fr 1fr;} }
   label{
     display:block;
     font-size:11px;
@@ -226,20 +234,42 @@
 
   /* Client list */
   .client-row{
-    display:grid;
-    grid-template-columns:14px 1.4fr 1fr 1fr 0.8fr 1.6fr auto;
-    gap:10px;
-    align-items:center;
-    padding:10px 0;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+    padding:12px 0;
     border-bottom:1px solid var(--line-soft);
     font-size:13.5px;
   }
-  @media (max-width:760px){ .client-row{grid-template-columns:14px 1fr 1fr; row-gap:6px;} }
+  .client-row .row-top{
+    display:grid;
+    grid-template-columns:14px 1.4fr 1fr 1fr 0.8fr auto;
+    gap:10px;
+    align-items:center;
+  }
+  .client-row .row-bottom{
+    display:grid;
+    grid-template-columns:1fr 1.3fr 1.6fr;
+    gap:10px;
+    padding-left:24px;
+  }
+  @media (max-width:760px){
+    .client-row .row-top{grid-template-columns:14px 1fr 1fr; row-gap:6px;}
+    .client-row .row-bottom{grid-template-columns:1fr 1fr; padding-left:0;}
+  }
   .client-row .dot{width:9px;height:9px;border-radius:50%;}
   .client-row .name{font-weight:600;}
   .client-row .city-tag{font-size:10.5px;font-family:var(--mono);color:var(--ink-soft);}
   .client-row select, .client-row input{padding:6px 7px;font-size:12.5px;}
   .client-row .notes{color:var(--ink-soft);font-size:12.5px;}
+  .maps-field{display:flex;gap:5px;align-items:center;}
+  .maps-field input{flex:1;}
+  .maps-open{
+    color:var(--nsw-tx);text-decoration:none;font-size:12px;white-space:nowrap;
+    border:1px solid var(--line);border-radius:6px;padding:6px 8px;
+  }
+  .maps-open:hover{background:var(--nsw-bg);}
+  .field-label{font-size:9.5px;color:var(--ink-soft);margin-bottom:2px;}
   .del-btn{
     background:none;border:none;color:var(--ink-soft);cursor:pointer;
     font-size:16px;line-height:1;padding:2px 6px;
@@ -271,7 +301,7 @@
       <button id="copyShareUrl" type="button">Copy link</button>
     </div>
   </div>
-  <div id="syncStatus"><span class="dot"></span><span id="syncStatusText">Connecting…</span></div>
+  <div id="syncStatus"><span class="dot"></span><span id="syncStatusText">Connecting…</span><button id="retrySync" type="button" style="display:none;background:none;border:none;color:var(--warn);text-decoration:underline;cursor:pointer;font-size:12px;margin-left:4px;padding:0;">Retry now</button></div>
 
   <section>
     <div class="cal-heading-row">
@@ -306,6 +336,10 @@
         <input id="fName" type="text" placeholder="e.g. Sarah Chen" required>
       </div>
       <div>
+        <label for="fCompany">Company</label>
+        <input id="fCompany" type="text" placeholder="e.g. Qantas">
+      </div>
+      <div>
         <label for="fStatus">Status</label>
         <select id="fStatus">
           <option value="none">Not contacted</option>
@@ -321,6 +355,14 @@
       <div>
         <label for="fTime">Time</label>
         <input id="fTime" type="time">
+      </div>
+      <div>
+        <label for="fPhone">Phone</label>
+        <input id="fPhone" type="tel" placeholder="+61 4XX XXX XXX">
+      </div>
+      <div>
+        <label for="fMaps">Google Maps link</label>
+        <input id="fMaps" type="url" placeholder="https://maps.app.goo.gl/…">
       </div>
       <div>
         <label for="fNotes">Notes</label>
@@ -347,11 +389,16 @@ let blobId = null;
 let syncing = false;
 let pollTimer = null;
 
-function setSyncStatus(state, text){
+function setSyncStatus(state, text, showRetry){
   const el = document.getElementById('syncStatus');
   el.className = state;
   document.getElementById('syncStatusText').textContent = text;
+  document.getElementById('retrySync').style.display = showRetry ? 'inline' : 'none';
 }
+
+document.getElementById('retrySync').addEventListener('click', ()=>{
+  if(!syncing) refreshFromServer(false).then(()=> pushData());
+});
 
 function getHashBlobId(){
   const m = location.hash.match(/blob=([a-zA-Z0-9\-]+)/);
@@ -382,20 +429,22 @@ document.getElementById('copyShareUrl').addEventListener('click', ()=>{
 });
 
 async function createBlob(initialData){
+  // No explicit Content-Type header: browsers send a CORS-"simple" text/plain
+  // request for string bodies, avoiding a preflight OPTIONS round-trip that
+  // some lightweight JSON-storage services don't answer reliably.
   const res = await fetch(JSONBLOB_BASE, {
     method: 'POST',
-    headers: {'Content-Type':'application/json','Accept':'application/json'},
     body: JSON.stringify(initialData)
   });
-  if(!res.ok) throw new Error('create failed');
+  if(!res.ok) throw new Error('create failed: HTTP ' + res.status);
   const loc = res.headers.get('Location');
-  if(!loc) throw new Error('no location header returned');
+  if(!loc) throw new Error('blob created but no Location header was returned — the sync service may be blocking cross-origin reads of that header');
   return loc.split('/').pop();
 }
 
 async function pullData(){
-  const res = await fetch(`${JSONBLOB_BASE}/${blobId}`, {headers:{'Accept':'application/json'}});
-  if(!res.ok) throw new Error('pull failed: ' + res.status);
+  const res = await fetch(`${JSONBLOB_BASE}/${blobId}`);
+  if(!res.ok) throw new Error('pull failed: HTTP ' + res.status);
   return res.json();
 }
 
@@ -406,14 +455,13 @@ async function pushData(){
   try{
     const res = await fetch(`${JSONBLOB_BASE}/${blobId}`, {
       method: 'PUT',
-      headers: {'Content-Type':'application/json','Accept':'application/json'},
       body: JSON.stringify({clients, itinerary: ITINERARY})
     });
-    if(!res.ok) throw new Error('push failed: ' + res.status);
+    if(!res.ok) throw new Error('push failed: HTTP ' + res.status);
     setSyncStatus('ok', 'Synced just now');
   }catch(e){
     console.error(e);
-    setSyncStatus('error', 'Could not sync — will retry');
+    setSyncStatus('error', 'Could not save (' + (e.message || 'network error') + ') — retrying…', true);
   }finally{
     syncing = false;
   }
@@ -428,7 +476,7 @@ async function refreshFromServer(silent){
     render();
   }catch(e){
     console.error(e);
-    setSyncStatus('error', 'Could not reach sync server — showing last known data');
+    setSyncStatus('error', 'Could not reach sync server (' + (e.message || 'network error') + ')', true);
   }
 }
 
@@ -596,14 +644,22 @@ function renderCalendar(){
 
     const dayMeetings = clients.filter(c => c.date === day.iso);
     if(dayMeetings.length){
-      const dots = document.createElement('div');
-      dots.className = 'dots';
-      dayMeetings.slice(0,4).forEach(c=>{
-        const dot = document.createElement('i');
-        dot.style.background = STATUS_META[c.status].color;
-        dots.appendChild(dot);
+      const meetingsBox = document.createElement('div');
+      meetingsBox.className = 'day-meetings';
+      dayMeetings.slice(0,3).forEach(c=>{
+        const line = document.createElement('div');
+        line.style.color = STATUS_META[c.status].color;
+        line.textContent = c.company ? c.company : c.name;
+        line.title = c.company ? `${c.company} (${c.name})` : c.name;
+        meetingsBox.appendChild(line);
       });
-      cell.appendChild(dots);
+      if(dayMeetings.length > 3){
+        const more = document.createElement('div');
+        more.style.color = 'var(--ink-soft)';
+        more.textContent = `+${dayMeetings.length - 3} more`;
+        meetingsBox.appendChild(more);
+      }
+      cell.appendChild(meetingsBox);
     }
 
     if(isClickable){
@@ -658,16 +714,26 @@ function renderClientList(){
     const row = document.createElement('div');
     row.className = 'client-row';
 
+    const rowTop = document.createElement('div');
+    rowTop.className = 'row-top';
+
     const dot = document.createElement('div');
     dot.className = 'dot';
     dot.style.background = STATUS_META[c.status].color;
-    row.appendChild(dot);
+    rowTop.appendChild(dot);
 
     const nameWrap = document.createElement('div');
     const nameEl = document.createElement('div');
     nameEl.className = 'name';
     nameEl.textContent = c.name;
     nameWrap.appendChild(nameEl);
+    if(c.company){
+      const companyEl = document.createElement('div');
+      companyEl.className = 'city-tag';
+      companyEl.style.fontFamily = 'var(--sans)';
+      companyEl.textContent = c.company;
+      nameWrap.appendChild(companyEl);
+    }
     if(c.date){
       const info = dayInfo(c.date);
       const tag = document.createElement('div');
@@ -675,7 +741,7 @@ function renderClientList(){
       tag.textContent = c.date + (info ? ' · '+info.label : '');
       nameWrap.appendChild(tag);
     }
-    row.appendChild(nameWrap);
+    rowTop.appendChild(nameWrap);
 
     const statusSel = document.createElement('select');
     Object.keys(STATUS_META).forEach(key=>{
@@ -686,25 +752,20 @@ function renderClientList(){
       statusSel.appendChild(opt);
     });
     statusSel.addEventListener('change', ()=>{ c.status = statusSel.value; pushData(); render(); });
-    row.appendChild(statusSel);
+    rowTop.appendChild(statusSel);
 
     const dateInput = document.createElement('input');
     dateInput.type = 'date';
     dateInput.min = GRID_START; dateInput.max = GRID_END;
     dateInput.value = c.date || '';
     dateInput.addEventListener('change', ()=>{ c.date = dateInput.value; pushData(); render(); });
-    row.appendChild(dateInput);
+    rowTop.appendChild(dateInput);
 
     const timeInput = document.createElement('input');
     timeInput.type = 'time';
     timeInput.value = c.time || '';
     timeInput.addEventListener('change', ()=>{ c.time = timeInput.value; pushData(); render(); });
-    row.appendChild(timeInput);
-
-    const notes = document.createElement('div');
-    notes.className = 'notes';
-    notes.textContent = c.notes || '';
-    row.appendChild(notes);
+    rowTop.appendChild(timeInput);
 
     const delBtn = document.createElement('button');
     delBtn.className = 'del-btn';
@@ -714,7 +775,65 @@ function renderClientList(){
       clients = clients.filter(x => x.id !== c.id);
       pushData(); render();
     });
-    row.appendChild(delBtn);
+    rowTop.appendChild(delBtn);
+
+    row.appendChild(rowTop);
+
+    const rowBottom = document.createElement('div');
+    rowBottom.className = 'row-bottom';
+
+    const phoneWrap = document.createElement('div');
+    const phoneLabel = document.createElement('div');
+    phoneLabel.className = 'field-label';
+    phoneLabel.textContent = 'Phone';
+    const phoneInput = document.createElement('input');
+    phoneInput.type = 'tel';
+    phoneInput.placeholder = '+61 4XX XXX XXX';
+    phoneInput.value = c.phone || '';
+    phoneInput.addEventListener('change', ()=>{ c.phone = phoneInput.value.trim(); pushData(); });
+    phoneWrap.appendChild(phoneLabel);
+    phoneWrap.appendChild(phoneInput);
+    rowBottom.appendChild(phoneWrap);
+
+    const mapsWrap = document.createElement('div');
+    const mapsLabel = document.createElement('div');
+    mapsLabel.className = 'field-label';
+    mapsLabel.textContent = 'Google Maps link';
+    const mapsField = document.createElement('div');
+    mapsField.className = 'maps-field';
+    const mapsInput = document.createElement('input');
+    mapsInput.type = 'url';
+    mapsInput.placeholder = 'https://maps.app.goo.gl/…';
+    mapsInput.value = c.mapsLink || '';
+    mapsInput.addEventListener('change', ()=>{ c.mapsLink = mapsInput.value.trim(); pushData(); render(); });
+    mapsField.appendChild(mapsInput);
+    if(c.mapsLink){
+      const openLink = document.createElement('a');
+      openLink.className = 'maps-open';
+      openLink.href = c.mapsLink;
+      openLink.target = '_blank';
+      openLink.rel = 'noopener noreferrer';
+      openLink.textContent = 'Open';
+      mapsField.appendChild(openLink);
+    }
+    mapsWrap.appendChild(mapsLabel);
+    mapsWrap.appendChild(mapsField);
+    rowBottom.appendChild(mapsWrap);
+
+    const notesWrap = document.createElement('div');
+    const notesLabel = document.createElement('div');
+    notesLabel.className = 'field-label';
+    notesLabel.textContent = 'Notes';
+    const notesInput = document.createElement('input');
+    notesInput.type = 'text';
+    notesInput.placeholder = 'Office, dial-in, etc.';
+    notesInput.value = c.notes || '';
+    notesInput.addEventListener('change', ()=>{ c.notes = notesInput.value.trim(); pushData(); });
+    notesWrap.appendChild(notesLabel);
+    notesWrap.appendChild(notesInput);
+    rowBottom.appendChild(notesWrap);
+
+    row.appendChild(rowBottom);
 
     list.appendChild(row);
   });
@@ -754,9 +873,12 @@ document.getElementById('addForm').addEventListener('submit', (e)=>{
   clients.push({
     id: 'c' + Date.now() + Math.random().toString(16).slice(2),
     name,
+    company: document.getElementById('fCompany').value.trim(),
     status: document.getElementById('fStatus').value,
     date: document.getElementById('fDate').value,
     time: document.getElementById('fTime').value,
+    phone: document.getElementById('fPhone').value.trim(),
+    mapsLink: document.getElementById('fMaps').value.trim(),
     notes: document.getElementById('fNotes').value.trim()
   });
   pushData();
